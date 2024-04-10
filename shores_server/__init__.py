@@ -6,8 +6,9 @@ def main(global_config, **settings):
     """
     with Configurator(settings=settings) as config:
         config.include('pyramid_chameleon')
+        config.include("cornice")
         config.include('.routes')
-        # config.configure_celery('development.ini')
-        config.configure_celery(global_config['__file__'])
+        config.configure_celery('development.ini')
+        # config.configure_celery(global_config['__file__'])
         config.scan()
     return config.make_wsgi_app()

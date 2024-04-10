@@ -14,7 +14,15 @@ requires = [
     'pyramid_chameleon',
     'pyramid_debugtoolbar',
     'pyramid_celery',
+    'cornice',
+    'h5py',
+    'mmh3',
     'waitress',
+    'opencv-python',
+    'pycocotools',
+    'matplotlib',
+    'onnxruntime',
+    'onnx'
 ]
 
 tests_require = [
