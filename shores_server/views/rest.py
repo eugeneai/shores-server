@@ -7,24 +7,38 @@ import numpy as np
 
 import logging
 
+from ..tasks import ( sa_start )
+
 log = logging.getLogger(__name__)
 
-img = Service(name='imgstore',
-              path='/sa-1.0/image/{img_name}',
-              description="Segment Any processor image collection")
+STORAGE = INGRP = UUIDGRP = None
 
-try:
-    STORAGE = h5py.File('data.hdf5', 'a')
-    log.info('Successfully opened the database')
-except OSError:
-    log.warning('Killed the previous database')
-    STORAGE = h5py.File('data.hdf5', 'w')
+def storage_begin():
+    global STORAGE, INGRP, UUIDGRP
+    if STORAGE is not None:
+        log.warning('database is open')
+        STORAGE.flush()
+    try:
+        STORAGE = h5py.File('data.hdf5', 'a')
+        log.info('Successfully opened the database')
+    except OSError:
+        log.warning('Killed the previous database')
+        STORAGE = h5py.File('data.hdf5', 'w')
 
-INGRP = STORAGE.require_group("input")
-UUIDGRP = STORAGE.require_group("uuid")
+    INGRP = STORAGE.require_group("input")
+    UUIDGRP = STORAGE.require_group("uuid")
 
-STORAGE.flush()
+    STORAGE.flush()
+    return STORAGE, INGRP, UUIDGRP
 
+def storage_end():
+    global STORAGE, INGRP, UUIDGRP
+    if STORAGE is None:
+        log.warning('database is already closed')
+        return STORAGE, INGRP, UUIDGRP
+    STORAGE.close()
+    STORAGE = INGRP = UUIDGRP = None
+    return STORAGE, INGRP, UUIDGRP
 
 def mmh(content):
     return mmh3.hash128(content)
@@ -34,14 +48,21 @@ def gs(str_ds):
     return str_ds.asstr()[()]
 
 
+img = Service(name='imgstore',
+              path='/sa-1.0/image/{img_name}',
+              description="Image collection")
+
 @img.get()
 def get_id(request):
     """Returns the UUID of the image.
     """
+    STORAGE, INGRP, UUIDGRP = storage_begin()
     try:
         name = request.matchdict['img_name']
     except KeyError:
+        STORAGE, INGRP, UUIDGRP = storage_end()
         return {"uuid": None, "error": "not found", "ok": True}
+    STORAGE, INGRP, UUIDGRP = storage_end()
     return {"uuid": gs(UUIDGRP[name]), "error": None, "ok": True}
 
 
@@ -57,6 +78,7 @@ def add_image(name, content, replace=True):
 
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
+    STORAGE, INGRP, UUIDGRP = storage_begin()
     if name in INGRP:
         del INGRP[name]
     imgg = INGRP.create_group(name)
@@ -64,6 +86,7 @@ def add_image(name, content, replace=True):
 
     # image = cv2.resize(image, (0,0), fx=0.08, fy=0.08) # TODO: Calculate sizes from the original size
     log.info("Image '{}' loaded".format(name))
+    STORAGE, INGRP, UUIDGRP = storage_end()
     return (imgg, ds)
 
 
@@ -74,6 +97,7 @@ def put_image(request):
     Returns UUID of the image
     """
     name = request.matchdict['img_name']
+    STORAGE, INGRP, UUIDGRP = storage_begin()
     imgg, ds = add_image(name, request.body)
     uui = uuidgen()
     uuis = str(uui)
@@ -85,6 +109,7 @@ def put_image(request):
     UUIDGRP.create_dataset(name, data=uuis)
     UUIDGRP.create_dataset(uuis, data=name)
     STORAGE.flush()
+    STORAGE, INGRP, UUIDGRP = storage_end()
     return {
         "error": None,
         "ok": True,
@@ -95,19 +120,18 @@ def put_image(request):
     }
 
 
-imgctrl = Service(name='imgcontrol',
+imgctrl = Service(name='image-control-by-uuid',
                   path='/sa-1.0/image-uuid/{img_uuid}',
                   description="Control of image collection")
 
-@imgctrl.delete()
-def put_image(request):
-    """Receive image
 
-    Returns UUID of the image
-    """
+@imgctrl.delete()
+def del_image(request):
+
     uuids = request.matchdict['img_uuid']
+    STORAGE, INGRP, UUIDGRP = storage_begin()
     if uuids not in UUIDGRP:
-        return {"error":"not found", "ok":False, "uuid": uuids}
+        return {"error": "not found", "ok": False, "uuid": uuids}
     name = gs(UUIDGRP[uuids])
     try:
         imgg = INGRP[name]
@@ -116,8 +140,10 @@ def put_image(request):
         del UUIDGRP[name]
         del UUIDGRP[uuids]
     except KeyError:
-        return {"error":"data not found", "ok":False, "uuid": uuids}
+        STORAGE, INGRP, UUIDGRP = storage_end()
+        return {"error": "data not found", "ok": False, "uuid": uuids}
     STORAGE.flush()
+    STORAGE, INGRP, UUIDGRP = storage_end()
     return {
         "error": None,
         "ok": True,
@@ -126,6 +152,72 @@ def put_image(request):
         "namepath": path
     }
 
+
+imgctrln = Service(name='image-control-by-name',
+                   path='/sa-1.0/image-name/{img_name}',
+                   description="Control of image collection")
+
+
+@imgctrln.delete()
+def del_image_by_name(request):
+
+    name = request.matchdict['img_name']
+    STORAGE, INGRP, UUIDGRP = storage_begin()
+    if name not in UUIDGRP:
+        STORAGE, INGRP, UUIDGRP = storage_end()
+        return {"error": "not found", "ok": False, "name": name}
+    uuids = gs(UUIDGRP[name])
+    try:
+        imgg = INGRP[name]
+        path = imgg.name
+        del INGRP[name]
+        del UUIDGRP[name]
+        del UUIDGRP[uuids]
+    except KeyError:
+        STORAGE, INGRP, UUIDGRP = storage_end()
+        return {
+            "error": "data not found",
+            "ok": False,
+            "uuid": uuids,
+            "name": name
+        }
+    STORAGE.flush()
+    STORAGE, INGRP, UUIDGRP = storage_end()
+    return {
+        "error": None,
+        "ok": True,
+        "uuid": uuids,
+        "name": name,
+        "namepath": path
+    }
+
+
+sactrl = Service(name='segment-any-control',
+                 path='/sa-1.0/sa/{img_uuid}/{cmd}',
+                 description="Functions of SA on a image identified by uuid")
+
+@sactrl.post()
+def start_recognition(request):
+
+    uuids = request.matchdict['img_uuid']
+    cmd = request.matchdict['cmd']
+    # cmd = 'start'
+
+    STORAGE, INGRP, UUIDGRP = storage_begin()
+    if uuids not in UUIDGRP:
+        STORAGE, INGRP, UUIDGRP = storage_end()
+        return {"error": "not found", "ok": False, "uuid": uuids,
+                "cmd": cmd, "processuuid": None}
+
+    rd = {"error": False, "ok": True,
+            "cmd": cmd}
+
+    if cmd == "start":
+        arc = sa_start.delay(uuids)
+        rd["processuuid"] = str(arc.id)
+
+    STORAGE, INGRP, UUIDGRP = storage_end()
+    return rd
 
 
 """
