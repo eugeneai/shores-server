@@ -22,7 +22,9 @@ requires = [
     'pycocotools',
     'matplotlib',
     'onnxruntime',
-    'onnx'
+    'onnx',
+    'sqlalchemy',
+    'redis'
 ]
 
 tests_require = [

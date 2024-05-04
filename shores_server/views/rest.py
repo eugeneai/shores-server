@@ -1,29 +1,42 @@
 from cornice import Service
 from uuid import uuid1 as uuidgen
+from uuid import UUID
 import mmh3
 import h5py
 import cv2
 import numpy as np
+import redis
+import time
+
+from celery.result import AsyncResult
 
 import logging
 
-from ..tasks import ( sa_start )
+# from ..tasks import (sa_start)
 
 log = logging.getLogger(__name__)
 
 STORAGE = INGRP = UUIDGRP = None
+
+LOCKDB = 5
+WAITSEC = 3
+LOCKS = redis.Redis(db=LOCKDB)
 
 def storage_begin():
     global STORAGE, INGRP, UUIDGRP
     if STORAGE is not None:
         log.warning('database is open')
         STORAGE.flush()
+    while LOCKS.get('data.hdf5') is not None:
+        log.warning('database is locked, wait for {} sec'.format(WAITSEC))
+        time.sleep(WAITSEC)
     try:
         STORAGE = h5py.File('data.hdf5', 'a')
         log.info('Successfully opened the database')
     except OSError:
         log.warning('Killed the previous database')
         STORAGE = h5py.File('data.hdf5', 'w')
+    LOCKS.set('data.hdf5', 'rest')
 
     INGRP = STORAGE.require_group("input")
     UUIDGRP = STORAGE.require_group("uuid")
@@ -31,14 +44,18 @@ def storage_begin():
     STORAGE.flush()
     return STORAGE, INGRP, UUIDGRP
 
+
 def storage_end():
     global STORAGE, INGRP, UUIDGRP
+    if LOCKS.delete('data.hdf5') == 0:
+        log.warning('Lock has been lost')
     if STORAGE is None:
         log.warning('database is already closed')
         return STORAGE, INGRP, UUIDGRP
     STORAGE.close()
     STORAGE = INGRP = UUIDGRP = None
     return STORAGE, INGRP, UUIDGRP
+
 
 def mmh(content):
     return mmh3.hash128(content)
@@ -48,9 +65,40 @@ def gs(str_ds):
     return str_ds.asstr()[()]
 
 
+imgs = Service(name='imgstore-list',
+               path='/sa-1.0/images/{limit}',
+               description="Image collection, operating lists")
+
+
+@imgs.get()
+def get_list(request):
+    """Returns collection of <name>:<uuid> pairs of images loaded
+    limited by {limit} value
+    """
+    STORAGE, INGRP, UUIDGRP = storage_begin()
+    try:
+        limit = request.matchdict['limit']
+    except KeyError:
+        STORAGE, INGRP, UUIDGRP = storage_end()
+        return {"list": [], "error": "wrong limit arg", "ok": False}
+    try:
+        limit=int(limit)
+    except ValueError:
+        return {"list": [], "error": "limit value cannot convert to integer", "ok": False}
+    ds = []
+    c = 0
+    for key, val in UUIDGRP.items():
+        ds.append((key, gs(val)))
+        c+=1
+        if c>limit: break
+    STORAGE, INGRP, UUIDGRP = storage_end()
+    return {"list": ds, "error": None, "ok": True, "limit": limit}
+
+
 img = Service(name='imgstore',
               path='/sa-1.0/image/{img_name}',
               description="Image collection")
+
 
 @img.get()
 def get_id(request):
@@ -61,7 +109,7 @@ def get_id(request):
         name = request.matchdict['img_name']
     except KeyError:
         STORAGE, INGRP, UUIDGRP = storage_end()
-        return {"uuid": None, "error": "not found", "ok": True}
+        return {"uuid": None, "error": "not found", "ok": False}
     STORAGE, INGRP, UUIDGRP = storage_end()
     return {"uuid": gs(UUIDGRP[name]), "error": None, "ok": True}
 
@@ -196,27 +244,51 @@ sactrl = Service(name='segment-any-control',
                  path='/sa-1.0/sa/{img_uuid}/{cmd}',
                  description="Functions of SA on a image identified by uuid")
 
+# cf6649e6-f7d4-11ee-865a-704d7b84fd9f
+
 @sactrl.post()
 def start_recognition(request):
+
+    from ..tasks import (sa_start, ANSWERS)
 
     uuids = request.matchdict['img_uuid']
     cmd = request.matchdict['cmd']
     # cmd = 'start'
 
     STORAGE, INGRP, UUIDGRP = storage_begin()
-    if uuids not in UUIDGRP:
-        STORAGE, INGRP, UUIDGRP = storage_end()
-        return {"error": "not found", "ok": False, "uuid": uuids,
-                "cmd": cmd, "processuuid": None}
+    isimg = uuids in UUIDGRP
+    STORAGE, INGRP, UUIDGRP = storage_end()
 
-    rd = {"error": False, "ok": True,
-            "cmd": cmd}
+    rd = {"error": False, "ok": True, "cmd": cmd}
 
     if cmd == "start":
+        if not isimg:
+            return {
+                "error": "not found",
+                "ok": False,
+                "uuid": uuids,
+                "cmd": cmd,
+                "processuuid": None
+            }
         arc = sa_start.delay(uuids)
-        rd["processuuid"] = str(arc.id)
+        puuid = rd["processuuid"] = str(arc.id)
+        ANSWERS.set(puuid, uuids)
+    if cmd == "status":
+        if isimg:
+            return {
+                "error": "uuid belongs to image data, not a process",
+                "ok": False,
+                "uuid": uuids,
+                "cmd": cmd,
+                "processuuid": None,
+                "ready": None
+            }
+        if ANSWERS.get(uuids):
+            rc = uuids
+            rd["ready"] = rc
+            if rc:
+                rd["result"] = "some-result"
 
-    STORAGE, INGRP, UUIDGRP = storage_end()
     return rd
 
 
