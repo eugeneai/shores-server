@@ -39,8 +39,8 @@ def rc_set(uuid, dict_data):
     ANSWERS.set(uuid, js)
     # print("rc_set ctrl:", ANSWERS.get(uuid))
 
-def rc_remove(uuid):
-    return ANSWERS.remove(uuid)
+def rc_delete(uuid):
+    return ANSWERS.delete(uuid)
 
 def gs(str_ds):
     return str_ds.asstr()[()]
@@ -98,18 +98,11 @@ def loadModel(name = "default"):
     logging.info("SAM loaded '{}'".format(name))
     SAM_NAME = name
 
-def imRead(filename):
-    image = cv2.imread(filename)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    # image = cv2.resize(image, (0,0), fx=0.08, fy=0.08) # TODO: Calculate sizes from the original size
-    logging.debug("INFO: Image '{}' loaded".format(filename))
-    return image
-
-def segment(imgName, model = MODEL):
+def segment(image, model = MODEL):
     global SAM
     if SAM is None:
         loadModel(name=model)
-    image = imRead(imgName)
+
     #predictor = SamPredictor(SAM)
     #predictor.set_image(image)
     #masks, v1, v2 = predictor.predict("borders")
@@ -119,21 +112,6 @@ def segment(imgName, model = MODEL):
     masks = mask_generator.generate(image)
     logging.info("Finish Recognition/Segmentation")
 
-    return masks
-
-# cv2.imwrite(TO, masks)
-
-def testRecognize(filename, model = MODEL):
-    # global TI, PO
-    ti = op.join(IDIR, filename)
-    masks = segment(ti, model=model)
-    print(masks)
-    import pickle
-    pprint.pprint(masks)
-    po = op.join(ODIR, "{}-".format(SAM_NAME)+filename+".obj")
-    of = open(po,"wb")
-    pickle.dump(masks, of)
-    of.close()
     return masks
 
 def testLoadAndSaveMasks(image, masks, outFN):
@@ -195,6 +173,10 @@ def testLoadAndSaveMasks(image, masks, outFN):
 
 @app.task
 def sa_start(uuids):
+    def f(js):
+        js["ready"] = True
+        js["result"] = "a Good result"
+
     def fd(js):
         js["ready"] = False
     rc_update(uuids, fd)
@@ -202,15 +184,58 @@ def sa_start(uuids):
     # Load Image
     storage, ingrp, uuidgrp = storage_begin()
     name = gs(uuidgrp[uuids])
+    logging.info("Image name is '{}'".format(name))
     imgg = ingrp[name]
-    img = imgg["content"]
-    print(img)
+    image = imgg["content"]
+    image = image[()]
+    logging.info("Image shape is {}".format(image.shape))
+    try:
+        req = imgg["masks"]
+        logging.info("Already recognized {}".format(req))
+        rc_update(uuids, f)
+        storage, ingrp, uuidgrp = storage_end()
+        return
+    except KeyError:
+        logging.info("New recognition starting.")
     storage, ingrp, uuidgrp = storage_end()
 
+    del storage
+    del ingrp
+    del uuidgrp
+    del imgg
 
-    def f(js):
-        js["ready"] = True
-        js["result"] = "a Good result"
+    masks = segment(image)
+    # masks = []
+
+    logging.info("Recognition finished, saving into storage.")
+    storage, ingrp, uuidgrp = storage_begin()
+
+    imgg = ingrp[name]
+
+    mgrp = imgg.create_group("masks")
+    for num, mask in enumerate(masks):
+        d = {}
+        mname = str(num)
+        d.update(mask)
+        mg = mgrp.create_group(mname)
+        del d["area"]
+        del d["predicted_iou"]
+        del d["stability_score"]
+        # print(list[d.items()])
+        for k, v in d.items():
+            mg.create_dataset(k, data=v,
+                              compression="lzf"
+                                  if k=="segmentation" else None)
+        mg.attrs["area"] = mask["area"]
+        mg.attrs["predicted_iou"] = mask["predicted_iou"]
+        mg.attrs["stability_score"] = mask["stability_score"]
+    storage, ingrp, uuidgrp = storage_end()
+
+    # from pprint import pprint
+
+    logging.info("Found {} masks".format(len(masks)))
+    #pprint(masks)
+
     rc_update(uuids, f)
     # task = TaskItem(task=task)
     # DBSession.add(task)

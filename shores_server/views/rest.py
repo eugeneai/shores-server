@@ -49,12 +49,12 @@ def storage_begin():
 
 def storage_end():
     global STORAGE, INGRP, UUIDGRP
-    if LOCKS.delete('data.hdf5') == 0:
-        log.warning('Lock has been lost')
     if STORAGE is None:
         log.warning('database is already closed')
         return STORAGE, INGRP, UUIDGRP
     STORAGE.close()
+    if LOCKS.delete('data.hdf5') == 0:
+        log.warning('Lock has been lost')
     STORAGE = INGRP = UUIDGRP = None
     return STORAGE, INGRP, UUIDGRP
 
@@ -253,7 +253,7 @@ def start_recognition(request):
 
     from ..tasks import (sa_start, ANSWERS,
                          rc_set, rc_get,
-                         rc_remove, rc_update)
+                         rc_delete, rc_update)
 
     uuids = request.matchdict['img_uuid']
     cmd = request.matchdict['cmd']
@@ -303,7 +303,7 @@ def start_recognition(request):
         rd["ready"] = False
         def _a(v, rr):
             rd["ready"] = v
-            rd["result"] = rr["result"]
+            rd["result"] = rr.get("result", None)
         rc = rc_get(uuids, "ready", _a)
         if rc is None:
             return {
@@ -325,7 +325,7 @@ def start_recognition(request):
                 "cmd": cmd,
                 "ready": None
             }
-        rc_remove(uuids)
+        rc_delete(uuids)
         rd.update({"ready":rcg["ready"], "processuuid":rcg["processuuid"]})
 
     return rd
