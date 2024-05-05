@@ -22,6 +22,8 @@ LOCKDB = 5
 WAITSEC = 3
 LOCKS = redis.Redis(db=LOCKDB)
 
+LOCKS.flushdb()
+
 def storage_begin():
     global STORAGE, INGRP, UUIDGRP
     if STORAGE is not None:
@@ -249,7 +251,9 @@ sactrl = Service(name='segment-any-control',
 @sactrl.post()
 def start_recognition(request):
 
-    from ..tasks import (sa_start, ANSWERS)
+    from ..tasks import (sa_start, ANSWERS,
+                         rc_set, rc_get,
+                         rc_remove, rc_update)
 
     uuids = request.matchdict['img_uuid']
     cmd = request.matchdict['cmd']
@@ -261,33 +265,68 @@ def start_recognition(request):
 
     rd = {"error": False, "ok": True, "cmd": cmd}
 
+    if cmd == "flush":
+        ANSWERS.flushdb()
+        return rd
+
+    if not isimg:
+        return {
+            "error": "not found",
+            "ok": False,
+            "uuid": uuids,
+            "cmd": cmd,
+            "processuuid": None
+        }
     if cmd == "start":
-        if not isimg:
+        prevrc = rc_get(uuids)
+        if prevrc is not None:
             return {
-                "error": "not found",
+                "error": "already running",
                 "ok": False,
                 "uuid": uuids,
                 "cmd": cmd,
-                "processuuid": None
+                "processuuid": prevrc.get("processuuid", None),
+                "ready": prevrc.get("ready", False)
             }
+        del prevrc
+        rc = {"uuid": uuids,
+              "ready": False}
+        rc_set(uuids, rc)
         arc = sa_start.delay(uuids)
-        puuid = rd["processuuid"] = str(arc.id)
-        ANSWERS.set(puuid, uuids)
-    if cmd == "status":
-        if isimg:
+        puuid = str(arc.id)
+        def _u(r):
+            r["processuuid"] = puuid
+        rc = rc_update(uuids, _u )
+        print(rc_get(uuids))
+        puuid = rd["processuuid"] = puuid
+    elif cmd == "status":
+        rd["ready"] = False
+        def _a(v, rr):
+            rd["ready"] = v
+            rd["result"] = rr["result"]
+        rc = rc_get(uuids, "ready", _a)
+        if rc is None:
             return {
-                "error": "uuid belongs to image data, not a process",
+                "error": "no process",
                 "ok": False,
                 "uuid": uuids,
                 "cmd": cmd,
-                "processuuid": None,
                 "ready": None
             }
-        if ANSWERS.get(uuids):
-            rc = uuids
-            rd["ready"] = rc
-            if rc:
-                rd["result"] = "some-result"
+
+        rd["processuuid"] = rc["processuuid"]
+    elif cmd == "finalize":
+        rcg = rc_get(uuids)
+        if rcg is None:
+            return {
+                "error": "not running",
+                "ok": False,
+                "uuid": uuids,
+                "cmd": cmd,
+                "ready": None
+            }
+        rc_remove(uuids)
+        rd.update({"ready":rcg["ready"], "processuuid":rcg["processuuid"]})
 
     return rd
 
