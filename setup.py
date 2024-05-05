@@ -24,7 +24,10 @@ requires = [
     'onnxruntime',
     'onnx',
     'sqlalchemy',
-    'redis'
+    'redis',
+    'torch',
+    'torchvision',
+    'torchaudio',
 ]
 
 tests_require = [
