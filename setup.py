@@ -28,6 +28,9 @@ requires = [
     'torch',
     'torchvision',
     'torchaudio',
+    'rdflib',
+#    'rdflib-endpoint[oxigraph,cli]',
+    'pyoxigraph'
 ]
 
 tests_require = [

@@ -424,6 +424,35 @@ def get_mask_number(request):
 
 # If number is not supplied, return number of masks
 
+sparql = Service(name='SPARQL graph operations',
+                 path='/sa-1.0/sparql/{img_uuid}/query/',
+                 description="Sparql Endpoint in the context of an image")
+
+@sparql.get()
+def get_sparql(request):
+    uuids = request.matchdict['img_uuid']
+    STORAGE, INGRP, UUIDGRP = storage_begin()
+    isimg = uuids in UUIDGRP
+    STORAGE, INGRP, UUIDGRP = storage_end()
+    if not isimg:
+        return {
+            "error": "not found",
+            "ok": False,
+            "uuid": uuids,
+        }
+
+    from rdflib import Graph
+
+    from rdflib.namespace import FOAF, RDF, RDFS, DC
+
+    # g = Graph(bind_namespaces="rdflib")
+    g = Graph(bind_namespaces="rdflib", store="Oxygraph")
+    g.parse("http://www.w3.org/People/Berners-Lee/card")
+    answer = g.query(request.body)
+    from pprint import pprint
+    pprint(answer)
+    return answer
+
 """
 Определение операций API с точки зрения методов HTTP
 Протокол HTTP определяет несколько методов, назначающих запросу семантическое значение. Ниже приведены наиболее распространенные методы HTTP, используемые большинством веб-API RESTful:
