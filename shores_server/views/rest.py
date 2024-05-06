@@ -344,7 +344,7 @@ masks = Service(name='masks-operation',
                 description="Mask operation by image uuid and number, starting from 0.")
 
 @masks.get()
-def get_mask_or_mask_number(request):
+def get_mask(request):
     uuids = request.matchdict['img_uuid']
     number = request.matchdict['number']
     STORAGE, INGRP, UUIDGRP = storage_begin()
@@ -382,8 +382,44 @@ def get_mask_or_mask_number(request):
     rc= {"error": False,
             "ok": True,
             "result": d}
-    from pprint import pprint
-    pprint(d.keys())
+    # from pprint import pprint
+    # pprint(d.keys())
+    return rc
+
+masks_cnt = Service(name='masks-operation-return number of them',
+                    path='/sa-1.0/masks/{img_uuid}',
+                    description="Mask operation by image uuid. Return number of masks")
+
+@masks_cnt.get()
+def get_mask_number(request):
+    uuids = request.matchdict['img_uuid']
+    STORAGE, INGRP, UUIDGRP = storage_begin()
+    isimg = uuids in UUIDGRP
+    STORAGE, INGRP, UUIDGRP = storage_end()
+    if not isimg:
+        return {
+            "error": "not found",
+            "ok": False,
+            "uuid": uuids,
+        }
+    STORAGE, INGRP, UUIDGRP = storage_begin()
+    name = gs(UUIDGRP[uuids])
+    imggrp = INGRP[name]
+    try:
+        mgrp = imggrp["masks"]
+    except KeyError:
+        mgrp = None
+    d = {}
+    if mgrp is not None:
+        d["number"] = len(mgrp.keys())
+    STORAGE, INGRP, UUIDGRP = storage_end()
+    if mgrp is None:
+        return {"error": "masks not found",
+                "description":"Masks not found, run recognition first",
+                "ok": False, "uuid": uuids, "name":name}
+    rc= {"error": False,
+            "ok": True,
+            "result": d}
     return rc
 
 # If number is not supplied, return number of masks
