@@ -447,8 +447,8 @@ def get_sparql(request):
     import json
     # from SPARQLWrapper import SPARQLWrapper, JSON
 
-    g = Graph(bind_namespaces="rdflib")
-    # g = Graph(bind_namespaces="rdflib", store="Oxygraph")
+    # g = Graph(bind_namespaces="rdflib")
+    g = Graph(bind_namespaces="rdflib", store="Oxygraph")
     g.parse("http://www.w3.org/People/Berners-Lee/card")
     print(request.body)
     print(request.POST)
