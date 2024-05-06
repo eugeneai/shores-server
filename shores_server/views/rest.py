@@ -20,6 +20,7 @@ STORAGE = INGRP = UUIDGRP = None
 
 LOCKDB = 5
 WAITSEC = 3
+MAXUNLOCKCOUNT = 3
 LOCKS = redis.Redis(db=LOCKDB)
 
 LOCKS.flushdb()
@@ -29,9 +30,14 @@ def storage_begin():
     if STORAGE is not None:
         log.warning('database is open')
         STORAGE.flush()
+        # LOCKS.delete("data.hdf5")
+    cnt = MAXUNLOCKCOUNT
     while LOCKS.get('data.hdf5') is not None:
         log.warning('database is locked, wait for {} sec'.format(WAITSEC))
         time.sleep(WAITSEC)
+        cnt -= 1
+        if cnt <= 0:
+            raise RuntimeError("cannot lock database")
     try:
         STORAGE = h5py.File('data.hdf5', 'a')
         log.info('Successfully opened the database')
@@ -147,18 +153,20 @@ def put_image(request):
     Returns UUID of the image
     """
     name = request.matchdict['img_name']
-    STORAGE, INGRP, UUIDGRP = storage_begin()
+
     imgg, ds = add_image(name, request.body)
+
     uui = uuidgen()
     uuis = str(uui)
     pth = ds.name
+    STORAGE, INGRP, UUIDGRP = storage_begin()
     if name in UUIDGRP:
         ouuis = gs(UUIDGRP[name])
         del UUIDGRP[name]
         del UUIDGRP[ouuis]
     UUIDGRP.create_dataset(name, data=uuis)
     UUIDGRP.create_dataset(uuis, data=name)
-    STORAGE.flush()
+    #STORAGE.flush()
     STORAGE, INGRP, UUIDGRP = storage_end()
     return {
         "error": None,
@@ -330,6 +338,55 @@ def start_recognition(request):
 
     return rd
 
+
+masks = Service(name='masks-operation',
+                path='/sa-1.0/mask/{img_uuid}/{number}',
+                description="Mask operation by image uuid and number, starting from 0.")
+
+@masks.get()
+def get_mask_or_mask_number(request):
+    uuids = request.matchdict['img_uuid']
+    number = request.matchdict['number']
+    STORAGE, INGRP, UUIDGRP = storage_begin()
+    isimg = uuids in UUIDGRP
+    STORAGE, INGRP, UUIDGRP = storage_end()
+    if not isimg:
+        return {
+            "error": "not found",
+            "ok": False,
+            "uuid": uuids,
+        }
+    STORAGE, INGRP, UUIDGRP = storage_begin()
+    name = gs(UUIDGRP[uuids])
+    imggrp = INGRP[name]
+    try:
+        mgrp = imggrp["masks"]
+    except KeyError:
+        mgrp = None
+    d = {}
+    if mgrp is not None:
+        mg = mgrp[number]
+        d["area"] = int(mg.attrs["area"])
+        d["predicted_iou"] = float(mg.attrs["predicted_iou"])
+        d["stability_score"] = float(mg.attrs["stability_score"])
+        for k, v in mg.items():
+            if k=="segmentation":
+                d[k] = v[()].astype(int).tolist()
+            else:
+                d[k] = v[()].tolist()
+    STORAGE, INGRP, UUIDGRP = storage_end()
+    if mgrp is None:
+        return {"error": "masks not found",
+                "description":"Masks not found, run recognition first",
+                "ok": False, "uuid": uuids, "name":name}
+    rc= {"error": False,
+            "ok": True,
+            "result": d}
+    from pprint import pprint
+    pprint(d.keys())
+    return rc
+
+# If number is not supplied, return number of masks
 
 """
 Определение операций API с точки зрения методов HTTP
