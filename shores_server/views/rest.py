@@ -428,7 +428,7 @@ sparql = Service(name='SPARQL graph operations',
                  path='/sa-1.0/sparql/{img_uuid}/query/',
                  description="Sparql Endpoint in the context of an image")
 
-@sparql.get()
+@sparql.post()
 def get_sparql(request):
     uuids = request.matchdict['img_uuid']
     STORAGE, INGRP, UUIDGRP = storage_begin()
@@ -444,14 +444,23 @@ def get_sparql(request):
     from rdflib import Graph
 
     from rdflib.namespace import FOAF, RDF, RDFS, DC
+    import json
+    # from SPARQLWrapper import SPARQLWrapper, JSON
 
-    # g = Graph(bind_namespaces="rdflib")
-    g = Graph(bind_namespaces="rdflib", store="Oxygraph")
+    g = Graph(bind_namespaces="rdflib")
+    # g = Graph(bind_namespaces="rdflib", store="Oxygraph")
     g.parse("http://www.w3.org/People/Berners-Lee/card")
-    answer = g.query(request.body)
+    print(request.body)
+    print(request.POST)
+    answer = g.query(request.POST["query"])
     from pprint import pprint
-    pprint(answer)
-    return answer
+    ser = answer.serialize(format='json')
+    d = json.loads(ser)
+    return d
+
+
+
+
 
 """
 Определение операций API с точки зрения методов HTTP

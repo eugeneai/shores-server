@@ -29,6 +29,7 @@ requires = [
     'torchvision',
     'torchaudio',
     'rdflib',
+    'sparqlwrapper',
 #    'rdflib-endpoint[oxigraph,cli]',
     'pyoxigraph'
 ]
