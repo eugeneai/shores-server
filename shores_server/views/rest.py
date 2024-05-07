@@ -424,12 +424,17 @@ def get_mask_number(request):
 
 # If number is not supplied, return number of masks
 
-sparql = Service(name='SPARQL graph operations',
-                 path='/sa-1.0/sparql/{img_uuid}/query/',
-                 description="Sparql Endpoint in the context of an image")
+# sparql = Service(name='SPARQL graph operations',
+#                  path='/sa-1.0/sparql/{img_uuid}/query/',
+#                  description="Sparql Endpoint in the context of an image")
 
-@sparql.post()
-def get_sparql(request):
+# @sparql.post()
+# def get_sparql(request):
+# from pyramid.config import add_view
+from pyramid.response import Response
+
+def post_sparql(request):
+
     uuids = request.matchdict['img_uuid']
     STORAGE, INGRP, UUIDGRP = storage_begin()
     isimg = uuids in UUIDGRP
@@ -447,16 +452,17 @@ def get_sparql(request):
     import json
     # from SPARQLWrapper import SPARQLWrapper, JSON
 
-    # g = Graph(bind_namespaces="rdflib")
-    g = Graph(bind_namespaces="rdflib", store="Oxygraph")
+    g = Graph(bind_namespaces="rdflib")
+    # g = Graph(bind_namespaces="rdflib", store="Oxygraph")
     g.parse("http://www.w3.org/People/Berners-Lee/card")
     print(request.body)
     print(request.POST)
     answer = g.query(request.POST["query"])
-    from pprint import pprint
+    # from pprint import pprint
     ser = answer.serialize(format='json')
-    d = json.loads(ser)
-    return d
+    #d = json.loads(ser)
+    #return d
+    return Response(ser)
 
 
 
