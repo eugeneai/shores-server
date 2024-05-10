@@ -9,6 +9,9 @@ import time
 
 from .views.rest import (storage_begin, storage_end, STORAGE, UUIDGRP, INGRP)
 
+from rdflib import Graph
+from shores_server.processing.features import fe_proc
+
 log = logging.getLogger(__name__)
 
 RUNNING = {}
@@ -225,7 +228,7 @@ def sa_start(uuids):
         for k, v in d.items():
             mg.create_dataset(k, data=v,
                               compression="lzf"
-                                  if k=="segmentation" else None)
+                                  if k == "segmentation" else None)
         mg.attrs["area"] = mask["area"]
         mg.attrs["predicted_iou"] = mask["predicted_iou"]
         mg.attrs["stability_score"] = mask["stability_score"]
@@ -239,4 +242,58 @@ def sa_start(uuids):
     rc_update(uuids, f)
     # task = TaskItem(task=task)
     # DBSession.add(task)
-    # transaction.commi
+    # transaction.commit
+
+@app.task
+def feature_recognition(uuid):
+    def f(js):
+        js["ready"] = True
+        js["result"] = True
+
+    def bf(js):
+        js["ready"] = True
+        js["result"] = False
+
+    def fd(js):
+        js["ready"] = False
+
+    rc_update(uuid, fd)
+
+    log.info("Creating task processing masks for image identified by UUID {}".format(uuid))
+    # Make a copy of mask data
+    storage, ingrp, uuidgrp = storage_begin()
+    name = gs(uuidgrp[uuid])
+    igrp = ingrp[name]
+    try:
+        mgrp = igrp["masks"]
+    except KeyError:
+        mgrp = None
+    dd = []
+    if mgrp is not None:
+        num = 0
+        for number in mgrp.keys():
+            number = str(num)
+            try:
+                mg = mgrp[number]
+            except KeyError:
+                break
+            d = {}
+            d["area"] = int(mg.attrs["area"])
+            d["predicted_iou"] = float(mg.attrs["predicted_iou"])
+            d["stability_score"] = float(mg.attrs["stability_score"])
+            for k, v in mg.items():
+                d[k] = v[()]
+            dd.append(d)
+        image = igrp["content"][()]
+    # release database
+    storage, ingrp, uuidgrp = storage_end()
+    if mgrp is None:
+        rc_update(uuid, bf)
+        logging.info("Cannot start FE, no masks found")
+        return
+    logging.info("Starting FE on {} shape image and {} its masks".format(image.shape, len(dd)))
+    g = Graph(bind_namespaces="rdflib")
+    fe_proc(g, image, dd, uuid, name)
+    ser = g.serialize(format="turtle")
+    print(ser)
+    rc_update(uuid, f)

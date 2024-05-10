@@ -449,14 +449,15 @@ def post_sparql(request):
     from rdflib import Graph
 
     from rdflib.namespace import FOAF, RDF, RDFS, DC
-    import json
+    # import json
+
     # from SPARQLWrapper import SPARQLWrapper, JSON
 
     g = Graph(bind_namespaces="rdflib")
     # g = Graph(bind_namespaces="rdflib", store="Oxygraph")
     g.parse("http://www.w3.org/People/Berners-Lee/card")
-    print(request.body)
-    print(request.POST)
+    # print(request.body)
+    # print(request.POST)
     answer = g.query(request.POST["query"])
     # from pprint import pprint
     ser = answer.serialize(format='json')
@@ -464,6 +465,107 @@ def post_sparql(request):
     #return d
     return Response(ser)
 
+
+featctrl = Service(name='feature-recognition-control',
+                 path='/sa-1.0/fe/{img_uuid}/{cmd}',
+                 description="Functions of Feature Extraction on a image identified by uuid")
+
+@featctrl.post()
+def start_fe(request):
+
+    from ..tasks import (feature_recognition, ANSWERS,
+                         rc_set, rc_get,
+                         rc_delete, rc_update)
+
+    uuids = request.matchdict['img_uuid']
+    cmd = request.matchdict['cmd']
+    # cmd = 'start'
+
+    STORAGE, INGRP, UUIDGRP = storage_begin()
+    isimg = uuids in UUIDGRP
+    STORAGE, INGRP, UUIDGRP = storage_end()
+
+    rd = {"error": False, "ok": True, "cmd": cmd}
+
+    if cmd == "flush":
+        ANSWERS.flushdb()
+        return rd
+
+    if not isimg:
+        return {
+            "error": "not found",
+            "ok": False,
+            "uuid": uuids,
+            "cmd": cmd,
+            "processuuid": None
+        }
+    if cmd == "start":
+        STORAGE, INGRP, UUIDGRP = storage_begin()
+        name = gs(UUIDGRP[uuids])
+        imgg = INGRP[name]
+        mok = "masks" in imgg
+        STORAGE, INGRP, UUIDGRP = storage_end()
+        if not mok:
+            return {
+                "error": "masks not found",
+                "description": "masks not found: apply SA first to the image",
+                "ok": False,
+                "uuid": uuids,
+                "cmd": cmd,
+                "processuuid": None
+            }
+
+        prevrc = rc_get(uuids)
+        if prevrc is not None:
+            return {
+                "error": "already running",
+                "ok": False,
+                "uuid": uuids,
+                "cmd": cmd,
+                "processuuid": prevrc.get("processuuid", None),
+                "ready": prevrc.get("ready", False)
+            }
+        del prevrc
+        rc = {"uuid": uuids,
+              "ready": False}
+        rc_set(uuids, rc)
+        arc = feature_recognition.delay(uuids)
+        puuid = str(arc.id)
+        def _u(r):
+            r["processuuid"] = puuid
+        rc = rc_update(uuids, _u )
+        print(rc_get(uuids))
+        puuid = rd["processuuid"] = puuid
+    elif cmd == "status":
+        rd["ready"] = False
+        def _a(v, rr):
+            rd["ready"] = v
+            rd["result"] = rr.get("result", None)
+        rc = rc_get(uuids, "ready", _a)
+        if rc is None:
+            return {
+                "error": "no process",
+                "ok": False,
+                "uuid": uuids,
+                "cmd": cmd,
+                "ready": None
+            }
+
+        rd["processuuid"] = rc["processuuid"]
+    elif cmd == "finalize":
+        rcg = rc_get(uuids)
+        if rcg is None:
+            return {
+                "error": "not running",
+                "ok": False,
+                "uuid": uuids,
+                "cmd": cmd,
+                "ready": None
+            }
+        rc_delete(uuids)
+        rd.update({"ready":rcg["ready"], "processuuid":rcg["processuuid"]})
+
+    return rd
 
 
 
