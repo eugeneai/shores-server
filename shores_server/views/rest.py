@@ -432,19 +432,34 @@ def get_mask_number(request):
 # def get_sparql(request):
 # from pyramid.config import add_view
 from pyramid.response import Response
+import json
 
 def post_sparql(request):
 
     uuids = request.matchdict['img_uuid']
     STORAGE, INGRP, UUIDGRP = storage_begin()
     isimg = uuids in UUIDGRP
+    if isimg:
+        name = gs(UUIDGRP[uuids])
+        igrp = INGRP[name]
+        if "features" in igrp:
+            kb = gs(igrp["features"])
+        else:
+            kb = None
     STORAGE, INGRP, UUIDGRP = storage_end()
     if not isimg:
-        return {
+        return json.dumps({
             "error": "not found",
             "ok": False,
             "uuid": uuids,
-        }
+        })
+    if kb is None:
+        return json.dumps({
+            "error": "not features",
+            "ok": False,
+            "uuid": uuids,
+            "description": "Perform feature extraction first"
+        })
 
     from rdflib import Graph
 
@@ -455,7 +470,8 @@ def post_sparql(request):
 
     g = Graph(bind_namespaces="rdflib")
     # g = Graph(bind_namespaces="rdflib", store="Oxygraph")
-    g.parse("http://www.w3.org/People/Berners-Lee/card")
+    # g.parse("http://www.w3.org/People/Berners-Lee/card")
+    g.parse(data=kb)
     # print(request.body)
     # print(request.POST)
     answer = g.query(request.POST["query"])

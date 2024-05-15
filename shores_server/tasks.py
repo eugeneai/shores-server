@@ -244,6 +244,8 @@ def sa_start(uuids):
     # DBSession.add(task)
     # transaction.commit
 
+STORE_FORMAT="turtle"
+
 @app.task
 def feature_recognition(uuid):
     def f(js):
@@ -294,6 +296,15 @@ def feature_recognition(uuid):
     logging.info("Starting FE on {} shape image and {} its masks".format(image.shape, len(dd)))
     g = Graph(bind_namespaces="rdflib")
     fe_proc(g, image, dd, uuid, name)
-    ser = g.serialize(format="turtle")
+    ser = g.serialize(format=STORE_FORMAT)
     print(ser)
+    storage, ingrp, uuidgrp = storage_begin()
+    name = gs(uuidgrp[uuid])
+    igrp = ingrp[name]
+    if "features" in igrp:
+        logging.warning("Removing old feature graph")
+        del igrp["features"]
+    igrp.create_dataset("features", data=ser)
+    logging.info("Storing feature graph in {} format".format(STORE_FORMAT))
+    storage, ingrp, uuidgrp = storage_end()
     rc_update(uuid, f)
