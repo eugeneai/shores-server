@@ -25,6 +25,7 @@ LOCKS = redis.Redis(db=LOCKDB)
 
 LOCKS.flushdb()
 
+
 def storage_begin():
     global STORAGE, INGRP, UUIDGRP
     if STORAGE is not None:
@@ -90,15 +91,19 @@ def get_list(request):
         STORAGE, INGRP, UUIDGRP = storage_end()
         return {"list": [], "error": "wrong limit arg", "ok": False}
     try:
-        limit=int(limit)
+        limit = int(limit)
     except ValueError:
-        return {"list": [], "error": "limit value cannot convert to integer", "ok": False}
+        return {
+            "list": [],
+            "error": "limit value cannot convert to integer",
+            "ok": False
+        }
     ds = []
     c = 0
     for key, val in UUIDGRP.items():
         ds.append((key, gs(val)))
-        c+=1
-        if c>limit: break
+        c += 1
+        if c > limit: break
     STORAGE, INGRP, UUIDGRP = storage_end()
     return {"list": ds, "error": None, "ok": True, "limit": limit}
 
@@ -256,12 +261,12 @@ sactrl = Service(name='segment-any-control',
 
 # cf6649e6-f7d4-11ee-865a-704d7b84fd9f
 
+
 @sactrl.post()
 def start_recognition(request):
 
-    from ..tasks import (sa_start, ANSWERS,
-                         rc_set, rc_get,
-                         rc_delete, rc_update)
+    from ..tasks import (sa_start, ANSWERS, rc_set, rc_get, rc_delete,
+                         rc_update)
 
     uuids = request.matchdict['img_uuid']
     cmd = request.matchdict['cmd']
@@ -297,21 +302,24 @@ def start_recognition(request):
                 "ready": prevrc.get("ready", False)
             }
         del prevrc
-        rc = {"uuid": uuids,
-              "ready": False}
+        rc = {"uuid": uuids, "ready": False}
         rc_set(uuids, rc)
         arc = sa_start.delay(uuids)
         puuid = str(arc.id)
+
         def _u(r):
             r["processuuid"] = puuid
-        rc = rc_update(uuids, _u )
+
+        rc = rc_update(uuids, _u)
         print(rc_get(uuids))
         puuid = rd["processuuid"] = puuid
     elif cmd == "status":
         rd["ready"] = False
+
         def _a(v, rr):
             rd["ready"] = v
             rd["result"] = rr.get("result", None)
+
         rc = rc_get(uuids, "ready", _a)
         if rc is None:
             return {
@@ -334,14 +342,42 @@ def start_recognition(request):
                 "ready": None
             }
         rc_delete(uuids)
-        rd.update({"ready":rcg["ready"], "processuuid":rcg["processuuid"]})
+        rd.update({"ready": rcg["ready"], "processuuid": rcg["processuuid"]})
+    elif cmd == "discard":
+        rcg = rc_get(uuids)
+        if rcg is not None:
+            return {
+                "error": "still running",
+                "description":
+                "cannot stop SA, wait its finishing. Use status command.",
+                "ok": False,
+                "uuid": uuids,
+                "cmd": cmd,
+                "ready": None
+            }
+        STORAGE, INGRP, UUIDGRP = storage_begin()
+        name = gs(UUIDGRP[uuids])
+        imgg = INGRP[name]
+        if "masks" in imgg:
+            del imgg["masks"]
+            rc = "removed"
+        else:
+            rc = "no mask"
+        STORAGE, INGRP, UUIDGRP = storage_end()
+        rd.update({
+            "ready": None,
+            "processuuid": None,
+            "description": rc
+        })
 
     return rd
 
 
-masks = Service(name='masks-operation',
-                path='/sa-1.0/mask/{img_uuid}/{number}',
-                description="Mask operation by image uuid and number, starting from 0.")
+masks = Service(
+    name='masks-operation',
+    path='/sa-1.0/mask/{img_uuid}/{number}',
+    description="Mask operation by image uuid and number, starting from 0.")
+
 
 @masks.get()
 def get_mask(request):
@@ -370,25 +406,30 @@ def get_mask(request):
         d["predicted_iou"] = float(mg.attrs["predicted_iou"])
         d["stability_score"] = float(mg.attrs["stability_score"])
         for k, v in mg.items():
-            if k=="segmentation":
+            if k == "segmentation":
                 d[k] = v[()].astype(int).tolist()
             else:
                 d[k] = v[()].tolist()
     STORAGE, INGRP, UUIDGRP = storage_end()
     if mgrp is None:
-        return {"error": "masks not found",
-                "description":"Masks not found, run recognition first",
-                "ok": False, "uuid": uuids, "name":name}
-    rc= {"error": False,
-            "ok": True,
-            "result": d}
+        return {
+            "error": "masks not found",
+            "description": "Masks not found, run recognition first",
+            "ok": False,
+            "uuid": uuids,
+            "name": name
+        }
+    rc = {"error": False, "ok": True, "result": d}
     # from pprint import pprint
     # pprint(d.keys())
     return rc
 
-masks_cnt = Service(name='masks-operation-return number of them',
-                    path='/sa-1.0/masks/{img_uuid}',
-                    description="Mask operation by image uuid. Return number of masks")
+
+masks_cnt = Service(
+    name='masks-operation-return number of them',
+    path='/sa-1.0/masks/{img_uuid}',
+    description="Mask operation by image uuid. Return number of masks")
+
 
 @masks_cnt.get()
 def get_mask_number(request):
@@ -414,13 +455,16 @@ def get_mask_number(request):
         d["number"] = len(mgrp.keys())
     STORAGE, INGRP, UUIDGRP = storage_end()
     if mgrp is None:
-        return {"error": "masks not found",
-                "description":"Masks not found, run recognition first",
-                "ok": False, "uuid": uuids, "name":name}
-    rc= {"error": False,
-            "ok": True,
-            "result": d}
+        return {
+            "error": "masks not found",
+            "description": "Masks not found, run recognition first",
+            "ok": False,
+            "uuid": uuids,
+            "name": name
+        }
+    rc = {"error": False, "ok": True, "result": d}
     return rc
+
 
 # If number is not supplied, return number of masks
 
@@ -433,6 +477,7 @@ def get_mask_number(request):
 # from pyramid.config import add_view
 from pyramid.response import Response
 import json
+
 
 def post_sparql(request):
 
@@ -482,15 +527,17 @@ def post_sparql(request):
     return Response(ser)
 
 
-featctrl = Service(name='feature-recognition-control',
-                 path='/sa-1.0/fe/{img_uuid}/{cmd}',
-                 description="Functions of Feature Extraction on a image identified by uuid")
+featctrl = Service(
+    name='feature-recognition-control',
+    path='/sa-1.0/fe/{img_uuid}/{cmd}',
+    description="Functions of Feature Extraction on a image identified by uuid"
+)
+
 
 @featctrl.post()
 def start_fe(request):
 
-    from ..tasks import (feature_recognition, ANSWERS,
-                         rc_set, rc_get,
+    from ..tasks import (feature_recognition, ANSWERS, rc_set, rc_get,
                          rc_delete, rc_update)
 
     uuids = request.matchdict['img_uuid']
@@ -542,21 +589,24 @@ def start_fe(request):
                 "ready": prevrc.get("ready", False)
             }
         del prevrc
-        rc = {"uuid": uuids,
-              "ready": False}
+        rc = {"uuid": uuids, "ready": False}
         rc_set(uuids, rc)
         arc = feature_recognition.delay(uuids)
         puuid = str(arc.id)
+
         def _u(r):
             r["processuuid"] = puuid
-        rc = rc_update(uuids, _u )
+
+        rc = rc_update(uuids, _u)
         print(rc_get(uuids))
         puuid = rd["processuuid"] = puuid
     elif cmd == "status":
         rd["ready"] = False
+
         def _a(v, rr):
             rd["ready"] = v
             rd["result"] = rr.get("result", None)
+
         rc = rc_get(uuids, "ready", _a)
         if rc is None:
             return {
@@ -579,11 +629,9 @@ def start_fe(request):
                 "ready": None
             }
         rc_delete(uuids)
-        rd.update({"ready":rcg["ready"], "processuuid":rcg["processuuid"]})
+        rd.update({"ready": rcg["ready"], "processuuid": rcg["processuuid"]})
 
     return rd
-
-
 
 
 """

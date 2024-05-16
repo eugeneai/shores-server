@@ -65,7 +65,7 @@ import os
 import cv2
 import numpy as np
 import numpy.ma as ma
-import pprint
+from pprint import pprint
 from PIL import Image
 
 CWD = os.getcwd()
@@ -232,6 +232,7 @@ def sa_start(uuids):
         mg.attrs["area"] = mask["area"]
         mg.attrs["predicted_iou"] = mask["predicted_iou"]
         mg.attrs["stability_score"] = mask["stability_score"]
+        # pprint(d)
     storage, ingrp, uuidgrp = storage_end()
 
     # from pprint import pprint
@@ -272,8 +273,7 @@ def feature_recognition(uuid):
         mgrp = None
     dd = []
     if mgrp is not None:
-        num = 0
-        for number in mgrp.keys():
+        for num in mgrp.keys():
             number = str(num)
             try:
                 mg = mgrp[number]
@@ -285,6 +285,7 @@ def feature_recognition(uuid):
             d["stability_score"] = float(mg.attrs["stability_score"])
             for k, v in mg.items():
                 d[k] = v[()]
+            # pprint((number, mg, d))
             dd.append(d)
         image = igrp["content"][()]
     # release database
@@ -294,6 +295,7 @@ def feature_recognition(uuid):
         logging.info("Cannot start FE, no masks found")
         return
     logging.info("Starting FE on {} shape image and {} its masks".format(image.shape, len(dd)))
+    # pprint(dd)
     g = Graph(bind_namespaces="rdflib")
     fe_proc(g, image, dd, uuid, name)
     ser = g.serialize(format=STORE_FORMAT)
