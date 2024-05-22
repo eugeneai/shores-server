@@ -11,6 +11,7 @@ from .views.rest import (storage_begin, storage_end, STORAGE, UUIDGRP, INGRP)
 
 from rdflib import Graph
 from shores_server.processing.features import fe_proc
+import torch
 
 log = logging.getLogger(__name__)
 
@@ -200,7 +201,9 @@ def sa_start(uuids):
         return
     except KeyError:
         logging.info("New recognition starting.")
-    storage, ingrp, uuidgrp = storage_end()
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        logging.info("Torch engine is {}.".format(device))
+        storage, ingrp, uuidgrp = storage_end()
 
     del storage
     del ingrp
