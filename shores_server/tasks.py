@@ -71,17 +71,17 @@ from PIL import Image
 
 CWD = os.getcwd()
 
-ROOTDIR="/home/eugeneai/projects/code/shores/"
+ROOTDIR="/home/eugeneai/projects/code/shores-server"
 # ROOTDIR = CWD
-CPDIR = op.join(ROOTDIR, "checkpoints")
+CPDIR = op.join(ROOTDIR, "tmp", "sa-data")
 CP_default = op.join(CPDIR, "sam_vit_h_4b8939.pth")
 CP_VIT_L = op.join(CPDIR, "sam_vit_l_0b3195.pth")
 CP_VIT_B = op.join(CPDIR, "sam_vit_b_01ec64.pth")
 
 MODEL = 'vit_b'
 
-IDIR = op.join(ROOTDIR, "images")
-ODIR = op.join(ROOTDIR, "out")
+# IDIR = op.join(ROOTDIR, "images")
+# ODIR = op.join(ROOTDIR, "out")
 
 SAM = None
 SAM_NAME = None
