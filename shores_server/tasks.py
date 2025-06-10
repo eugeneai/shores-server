@@ -134,10 +134,11 @@ def segment(image, model=MODEL):
     return masks
 
 
-def testLoadAndSaveMasks(image, masks, outFN):
+def testLoadAndSaveMasks(image, masks, outFN, gen=False):
     print("Test with load")
     if isinstance(image, str):
-        image = op.join(IDIR, image)
+        imagename = op.join(IDIR, image)
+        image = imagename
         image = cv2.imread(image)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     if isinstance(masks, str):
@@ -168,10 +169,10 @@ def testLoadAndSaveMasks(image, masks, outFN):
         mm = np.copy(maskt)
         # msk = ma.masked_equal(mask["segmentation"], True)
         msk = mask["segmentation"]
-        print("Mask from SAnything")
-        pprint(msk)
-        print("OUR template")
-        pprint(mm)
+        # print("Mask from SAnything")
+        # pprint(msk)
+        # print("OUR template")
+        # pprint(mm)
         mm[msk] = 255
         print("MASK")
         pprint(mm)
@@ -182,11 +183,16 @@ def testLoadAndSaveMasks(image, masks, outFN):
         tifLayers.append(Image.fromarray(img))
         print("writing "+name)
         cv2.imwrite(name, img)
+        if gen:
+            yield (imagename, name, img)
+
     name = op.join(ODIR, "join-{}-".format(SAM_NAME) + outFN + '.tif')
     tifLayers[0].save(name,
                       save_all=True,
                       append_images=tifLayers[1:],
                       compression='tiff_lzw')
+    if gen:
+        yield (imagename, name, tifLayers[1:])
 
 
 # if __name__=="__main__":
