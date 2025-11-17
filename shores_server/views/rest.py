@@ -634,6 +634,161 @@ def start_fe(request):
     return rd
 
 
+osm_service = Service(
+    name='osm-query-service',
+    path='/sa-1.0/osm/{img_uuid}/{query_type}',
+    description="OpenStreetMap data queries for shoreline context analysis"
+)
+
+
+@osm_service.get()
+def query_osm_data(request):
+    """Query OSM data for shoreline features and context analysis
+
+    Args:
+        img_uuid: UUID of the image to get geographic context for
+        query_type: Type of OSM query (shoreline, infrastructure, buildings, etc.)
+
+    Returns:
+        GeoJSON with OSM features relevant for shoreline analysis
+    """
+    import requests
+    import json
+
+    uuids = request.matchdict['img_uuid']
+    query_type = request.matchdict['query_type']
+
+    # Get image metadata to determine geographic location
+    STORAGE, INGRP, UUIDGRP = storage_begin()
+    isimg = uuids in UUIDGRP
+    if not isimg:
+        STORAGE, INGRP, UUIDGRP = storage_end()
+        return {
+            "error": "image not found",
+            "ok": False,
+            "uuid": uuids,
+            "query_type": query_type
+        }
+
+    name = gs(UUIDGRP[uuids])
+    imggrp = INGRP[name]
+
+    # Check if image has geographic metadata
+    if 'geolocation' not in imggrp.attrs:
+        STORAGE, INGRP, UUIDGRP = storage_end()
+        return {
+            "error": "geographic coordinates not available for this image",
+            "description": "Image must have geolocation metadata for OSM queries",
+            "ok": False,
+            "uuid": uuids,
+            "name": name
+        }
+
+    # Get bounding box from image metadata
+    bbox = imggrp.attrs['geolocation']
+    STORAGE, INGRP, UUIDGRP = storage_end()
+
+    # Define OSM queries for different shoreline analysis needs
+    osm_queries = {
+        'shoreline': '["natural"="coastline"]',
+        'water': '["natural"="water"]',
+        'infrastructure': '["highway"]',
+        'buildings': '["building"]',
+        'landuse': '["landuse"]',
+        'all': ''  # All features in the area
+    }
+
+    if query_type not in osm_queries:
+        return {
+            "error": f"unknown query type: {query_type}",
+            "ok": False,
+            "available_types": list(osm_queries.keys())
+        }
+
+    # Construct Overpass API query with proper bounding box
+    # bbox format: [min_lat, min_lon, max_lat, max_lon]
+    bbox_str = f"{bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]}"  # Convert to south,west,north,east
+
+    overpass_query = f"""
+    [out:json][timeout:25];
+    (
+        {osm_queries[query_type]}({bbox_str});
+    );
+    out body;
+    >;
+    out skel qt;
+    """
+
+    try:
+        # Query Overpass API
+        response = requests.post(
+            'https://overpass-api.de/api/interpreter',
+            data=overpass_query,
+            headers={'Content-Type': 'application/x-www-form-urlencoded'}
+        )
+        response.raise_for_status()
+
+        osm_data = response.json()
+
+        # Convert to GeoJSON format
+        geojson = {
+            "type": "FeatureCollection",
+            "features": []
+        }
+
+        for element in osm_data['elements']:
+            feature = {
+                "type": "Feature",
+                "properties": {
+                    "id": element.get('id'),
+                    "type": element.get('type'),
+                    "tags": element.get('tags', {})
+                },
+                "geometry": None
+            }
+
+            # Handle different geometry types
+            if element['type'] == 'node':
+                feature["geometry"] = {
+                    "type": "Point",
+                    "coordinates": [element['lon'], element['lat']]
+                }
+            elif element['type'] == 'way' and 'geometry' in element:
+                feature["geometry"] = {
+                    "type": "LineString",
+                    "coordinates": [[node['lon'], node['lat']] for node in element['geometry']]
+                }
+            elif element['type'] == 'relation':
+                # Skip relations as they are complex to represent in simple GeoJSON
+                continue
+
+            geojson["features"].append(feature)
+
+        return {
+            "error": None,
+            "ok": True,
+            "uuid": uuids,
+            "query_type": query_type,
+            "bbox": bbox,
+            "data": geojson
+        }
+
+    except requests.RequestException as e:
+        return {
+            "error": f"OSM API request failed: {str(e)}",
+            "ok": False,
+            "uuid": uuids,
+            "query_type": query_type
+        }
+    except Exception as e:
+        return {
+            "error": f"OSM data processing failed: {str(e)}",
+            "ok": False,
+            "uuid": uuids,
+            "query_type": query_type
+        }
+
+
 """
 Определение операций API с точки зрения методов HTTP
 Протокол HTTP определяет несколько методов, назначающих запросу семантическое значение. Ниже приведены наиболее распространенные методы HTTP, используемые большинством веб-API RESTful:

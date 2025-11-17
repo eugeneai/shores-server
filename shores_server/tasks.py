@@ -63,6 +63,7 @@ def rc_update(uuid, f):
 
 
 from segment_anything import SamPredictor, sam_model_registry, SamAutomaticMaskGenerator
+from segment_anything.modeling.sam2 import sam2_model_registry
 
 import os.path as op
 import os
@@ -74,18 +75,21 @@ from PIL import Image
 
 CWD = os.getcwd()
 
-<<<<<<< HEAD
 ROOTDIR = "/home/eugeneai/projects/code/shores/"
-=======
-ROOTDIR = "/home/eugeneai/projects/code/shores-server"
->>>>>>> 1a0c0f7735b35b6f794ba002708ea9da135d1cee
+# ROOTDIR = "/home/eugeneai/projects/code/shores-server"
 # ROOTDIR = CWD
 CPDIR = op.join(ROOTDIR, "tmp", "sa-data")
+# SAM1 checkpoints
 CP_default = op.join(CPDIR, "sam_vit_h_4b8939.pth")
 CP_VIT_L = op.join(CPDIR, "sam_vit_l_0b3195.pth")
 CP_VIT_B = op.join(CPDIR, "sam_vit_b_01ec64.pth")
+# SAM2 checkpoints
+CP_SAM2_VIT_H = op.join(CPDIR, "sam2_hiera_large.pt")
+CP_SAM2_VIT_B = op.join(CPDIR, "sam2_hiera_base_plus.pt")
+CP_SAM2_VIT_T = op.join(CPDIR, "sam2_hiera_tiny.pt")
 
 MODEL = 'vit_b'
+SAM2_MODEL = 'sam2_vit_h'
 
 IDIR = op.join(ROOTDIR, "images")
 ODIR = op.join(ROOTDIR, "out")
@@ -98,7 +102,19 @@ mask_generator = None
 def loadModel(name="default"):
     global SAM, mask_generator, SAM_NAME
     logging.info("SAM starts loading")
-    if name == "default":
+
+    # SAM2 models
+    if name.startswith("sam2_"):
+        if name == "sam2_vit_h":
+            SAM = sam2_model_registry["sam2_hiera_l"](checkpoint=CP_SAM2_VIT_H)
+        elif name == "sam2_vit_b":
+            SAM = sam2_model_registry["sam2_hiera_b_plus"](checkpoint=CP_SAM2_VIT_B)
+        elif name == "sam2_vit_t":
+            SAM = sam2_model_registry["sam2_hiera_t"](checkpoint=CP_SAM2_VIT_T)
+        else:
+            raise ValueError("Wrong parameter for SAM2 model")
+    # SAM1 models
+    elif name == "default":
         SAM = sam_model_registry["default"](checkpoint=CP_default)
     elif name == "vit_l":
         SAM = sam_model_registry["vit_l"](checkpoint=CP_VIT_L)
@@ -106,6 +122,7 @@ def loadModel(name="default"):
         SAM = sam_model_registry["vit_b"](checkpoint=CP_VIT_B)
     else:
         raise ValueError("Wrong parameter for SAM model")
+
     # SAM.to(device='cuda')
     SAM.to(device='cpu')
     mask_generator = SamAutomaticMaskGenerator(
@@ -125,11 +142,11 @@ def segment(image, model=MODEL):
     global SAM
     if SAM is None:
         loadModel(name=model)
-    #predictor = SamPredictor(SAM)
-    #predictor = SamPredictor(SAM)
-    #predictor.set_image(image)
-    #masks, v1, v2 = predictor.predict("borders")
-    #print(type(masks), type(v1), type(v2))
+    # For SAM2, we need to handle the different input format
+    if model.startswith("sam2_"):
+        # SAM2 expects images in 0-255 range with channels last
+        if image.dtype == np.float32 and image.max() <= 1.0:
+            image = (image * 255).astype(np.uint8)
 
     logging.info("Start Recognition/Segmentation")
     masks = mask_generator.generate(image)
@@ -138,11 +155,7 @@ def segment(image, model=MODEL):
     return masks
 
 
-<<<<<<< HEAD
-def testLoadAndSaveMasks(image, masks, outFN):
-=======
 def testLoadAndSaveMasks(image, masks, outFN, gen=False):
->>>>>>> 1a0c0f7735b35b6f794ba002708ea9da135d1cee
     print("Test with load")
     if isinstance(image, str):
         imagename = op.join(IDIR, image)
@@ -154,10 +167,7 @@ def testLoadAndSaveMasks(image, masks, outFN, gen=False):
         import pickle
         try:
             i = open(masks, "rb")
-<<<<<<< HEAD
-=======
             print("Loading from pickle {}".format(masks))
->>>>>>> 1a0c0f7735b35b6f794ba002708ea9da135d1cee
             masks = pickle.load(i)
             i.close()
         except FileNotFoundError:
@@ -180,17 +190,10 @@ def testLoadAndSaveMasks(image, masks, outFN, gen=False):
         mm = np.copy(maskt)
         # msk = ma.masked_equal(mask["segmentation"], True)
         msk = mask["segmentation"]
-<<<<<<< HEAD
         print("Mask from SAnything")
         pprint.pprint(msk)
         print("OUR template")
         pprint.pprint(mm)
-=======
-        # print("Mask from SAnything")
-        # pprint(msk)
-        # print("OUR template")
-        # pprint(mm)
->>>>>>> 1a0c0f7735b35b6f794ba002708ea9da135d1cee
         mm[msk] = 255
         print("MASK")
         pprint(mm)
@@ -201,22 +204,16 @@ def testLoadAndSaveMasks(image, masks, outFN, gen=False):
         tifLayers.append(Image.fromarray(img))
         print("writing "+name)
         cv2.imwrite(name, img)
-<<<<<<< HEAD
-=======
         if gen:
             yield (imagename, name, img)
 
->>>>>>> 1a0c0f7735b35b6f794ba002708ea9da135d1cee
     name = op.join(ODIR, "join-{}-".format(SAM_NAME) + outFN + '.tif')
     tifLayers[0].save(name,
                       save_all=True,
                       append_images=tifLayers[1:],
                       compression='tiff_lzw')
-<<<<<<< HEAD
-=======
     if gen:
         yield (imagename, name, tifLayers[1:])
->>>>>>> 1a0c0f7735b35b6f794ba002708ea9da135d1cee
 
 
 # if __name__=="__main__":
@@ -229,7 +226,7 @@ def testLoadAndSaveMasks(image, masks, outFN, gen=False):
 
 
 @app.task
-def sa_start(uuids):
+def sa_start(uuids, model=SAM2_MODEL):
 
     def f(js):
         js["ready"] = True
@@ -240,7 +237,7 @@ def sa_start(uuids):
 
     rc_update(uuids, fd)
     log.info(
-        'creating task processing image identified by UUID {}'.format(uuids))
+        'creating task processing image identified by UUID {} with model {}'.format(uuids, model))
     # Load Image
     storage, ingrp, uuidgrp = storage_begin()
     name = gs(uuidgrp[uuids])
@@ -266,7 +263,7 @@ def sa_start(uuids):
     del uuidgrp
     del imgg
 
-    masks = segment(image)
+    masks = segment(image, model=model)
     # masks = []
 
     logging.info("Recognition finished, saving into storage.")
