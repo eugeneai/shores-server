@@ -226,7 +226,7 @@ def testLoadAndSaveMasks(image, masks, outFN, gen=False):
 
 
 @app.task
-def sa_start(uuids, model=SAM2_MODEL):
+def sa_start_task(uuids, model=SAM2_MODEL):
 
     def f(js):
         js["ready"] = True

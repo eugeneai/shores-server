@@ -536,14 +536,20 @@ featctrl = Service(
 
 @featctrl.post()
 def start_fe(request):
+    """Start feature extraction from segmented masks
 
-    from ..tasks import (feature_recognition, ANSWERS, rc_set, rc_get,
-                         rc_delete, rc_update)
+    Args:
+        img_uuid: UUID of the image to process
+        cmd: Command to execute (start, status, finalize)
 
+    Returns:
+        Status information about the feature extraction process
+    """
     uuids = request.matchdict['img_uuid']
     cmd = request.matchdict['cmd']
     # cmd = 'start'
 
+    # Get image metadata
     STORAGE, INGRP, UUIDGRP = storage_begin()
     isimg = uuids in UUIDGRP
     STORAGE, INGRP, UUIDGRP = storage_end()
@@ -632,6 +638,89 @@ def start_fe(request):
         rd.update({"ready": rcg["ready"], "processuuid": rcg["processuuid"]})
 
     return rd
+
+sa_service = Service(
+    name='sa-service',
+    path='/sa-1.0/sa/{img_uuid}/{cmd}',
+    description="Segment Anything operations for shoreline analysis"
+)
+
+sa_start_service = Service(
+    name='sa-start-service',
+    path='/sa-1.0/start',
+    description="Start SAM segmentation with model selection"
+)
+
+@sa_start_service.post()
+def sa_start(request):
+    """Start SAM segmentation on an image
+
+    Args:
+        img_uuid: UUID of the image to process
+        model: SAM model to use (default, vit_l, vit_b, sam2_vit_h, sam2_vit_b, sam2_vit_t)
+
+    Returns:
+        Status information about the segmentation process
+    """
+    import json
+    uuids = request.json_body.get('img_uuid')
+    model = request.json_body.get('model', 'sam2_vit_h')  # Default to SAM2
+
+    # Get image metadata
+    STORAGE, INGRP, UUIDGRP = storage_begin()
+    isimg = uuids in UUIDGRP
+    STORAGE, INGRP, UUIDGRP = storage_end()
+
+    if not isimg:
+        return {
+            "error": "image not found",
+            "ok": False,
+            "uuid": uuids,
+            "model": model
+        }
+
+    # Check if model is valid
+    valid_models = ['default', 'vit_l', 'vit_b', 'sam2_vit_h', 'sam2_vit_b', 'sam2_vit_t']
+    if model not in valid_models:
+        return {
+            "error": f"invalid model: {model}",
+            "ok": False,
+            "uuid": uuids,
+            "model": model,
+            "available_models": valid_models
+        }
+
+    # Check if already running
+    prevrc = rc_get(uuids)
+    if prevrc is not None:
+        return {
+            "error": "already running",
+            "ok": False,
+            "uuid": uuids,
+            "model": model,
+            "processuuid": prevrc.get("processuuid", None),
+            "ready": prevrc.get("ready", False)
+        }
+
+    # Start segmentation task
+    rc = {"uuid": uuids, "ready": False, "model": model}
+    rc_set(uuids, rc)
+    arc = sa_start_task.delay(uuids, model)
+    puuid = str(arc.id)
+
+    def _u(r):
+        r["processuuid"] = puuid
+
+    rc_update(uuids, _u)
+
+    return {
+        "error": None,
+        "ok": True,
+        "uuid": uuids,
+        "model": model,
+        "processuuid": puuid,
+        "ready": False
+    }
 
 
 osm_service = Service(
