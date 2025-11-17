@@ -21,6 +21,7 @@ ANSWERDB = 6
 ANSWERS = redis.Redis(db=ANSWERDB)
 ANS = 'processes'
 
+
 def rc_get(uuid, field=None, f=None):
     rc = ANSWERS.get(uuid)
     # print("GET rc:", rc)
@@ -35,6 +36,7 @@ def rc_get(uuid, field=None, f=None):
     else:
         return rc
 
+
 def rc_set(uuid, dict_data):
     if dict_data is None:
         raise ValueError("setting None")
@@ -43,11 +45,14 @@ def rc_set(uuid, dict_data):
     ANSWERS.set(uuid, js)
     # print("rc_set ctrl:", ANSWERS.get(uuid))
 
+
 def rc_delete(uuid):
     return ANSWERS.delete(uuid)
 
+
 def gs(str_ds):
     return str_ds.asstr()[()]
+
 
 def rc_update(uuid, f):
     rc = rc_get(uuid)
@@ -55,8 +60,6 @@ def rc_update(uuid, f):
     if rc_ is not None:
         rc = rc_
     rc_set(uuid, rc)
-
-
 
 
 from segment_anything import SamPredictor, sam_model_registry, SamAutomaticMaskGenerator
@@ -71,7 +74,7 @@ from PIL import Image
 
 CWD = os.getcwd()
 
-ROOTDIR="/home/eugeneai/projects/code/shores/"
+ROOTDIR = "/home/eugeneai/projects/code/shores/"
 # ROOTDIR = CWD
 CPDIR = op.join(ROOTDIR, "checkpoints")
 CP_default = op.join(CPDIR, "sam_vit_h_4b8939.pth")
@@ -87,7 +90,8 @@ SAM = None
 SAM_NAME = None
 mask_generator = None
 
-def loadModel(name = "default"):
+
+def loadModel(name="default"):
     global SAM, mask_generator, SAM_NAME
     logging.info("SAM starts loading")
     if name == "default":
@@ -102,7 +106,8 @@ def loadModel(name = "default"):
     logging.info("SAM loaded '{}'".format(name))
     SAM_NAME = name
 
-def segment(image, model = MODEL):
+
+def segment(image, model=MODEL):
     global SAM
     if SAM is None:
         loadModel(name=model)
@@ -118,6 +123,7 @@ def segment(image, model = MODEL):
 
     return masks
 
+
 def testLoadAndSaveMasks(image, masks, outFN):
     print("Test with load")
     if isinstance(masks, str):
@@ -125,7 +131,7 @@ def testLoadAndSaveMasks(image, masks, outFN):
         import pickle
         print("Loading from pickle {}".format(masks))
         try:
-            i=open(masks,"rb")
+            i = open(masks, "rb")
             masks = pickle.load(i)
             i.close()
         except FileNotFoundError:
@@ -137,15 +143,15 @@ def testLoadAndSaveMasks(image, masks, outFN):
     rows, cols, chans = image.shape
     # maskt = np.full((rows, cols), 255, dtype=int)
     maskt = np.full((rows, cols), 0, dtype=image.dtype)
-    cnt={}
-    tifLayers=[]
+    cnt = {}
+    tifLayers = []
     tifLayers.append(Image.fromarray(image))
     for mask in masks:
         # m = cv2.
         area = mask["area"]
-        c = cnt.setdefault(area,1)
+        c = cnt.setdefault(area, 1)
         cnt[area] += 1
-        name = op.join(ODIR, "{}-{}-{}-".format(SAM_NAME, area, c)+outFN)
+        name = op.join(ODIR, "{}-{}-{}-".format(SAM_NAME, area, c) + outFN)
         logging.info("Writing file {}".format(name))
         mm = np.copy(maskt)
         # msk = ma.masked_equal(mask["segmentation"], True)
@@ -154,17 +160,21 @@ def testLoadAndSaveMasks(image, masks, outFN):
         pprint.pprint(msk)
         print("OUR template")
         pprint.pprint(mm)
-        mm[msk]=255
+        mm[msk] = 255
         print("MASK")
         pprint.pprint(mm)
         # quit()
         # mm = ma.masked_array(mask, mask["segmentation"])
         # img = cv2.bitwise_and(image, image, mask = mm)
-        img = cv2.bitwise_and(image, image, mask = mm)
+        img = cv2.bitwise_and(image, image, mask=mm)
         tifLayers.append(Image.fromarray(img))
         cv2.imwrite(name, img)
-    name = op.join(ODIR, "join-{}-".format(SAM_NAME)+outFN+'.tif')
-    tifLayers[0].save(name, save_all=True, append_images=tifLayers[1:], compression='tiff_lzw')
+    name = op.join(ODIR, "join-{}-".format(SAM_NAME) + outFN + '.tif')
+    tifLayers[0].save(name,
+                      save_all=True,
+                      append_images=tifLayers[1:],
+                      compression='tiff_lzw')
+
 
 # if __name__=="__main__":
 
@@ -177,14 +187,17 @@ def testLoadAndSaveMasks(image, masks, outFN):
 
 @app.task
 def sa_start(uuids):
+
     def f(js):
         js["ready"] = True
         js["result"] = "a Good result"
 
     def fd(js):
         js["ready"] = False
+
     rc_update(uuids, fd)
-    log.info('creating task processing image identified by UUID {}'.format(uuids))
+    log.info(
+        'creating task processing image identified by UUID {}'.format(uuids))
     # Load Image
     storage, ingrp, uuidgrp = storage_begin()
     name = gs(uuidgrp[uuids])
@@ -229,9 +242,8 @@ def sa_start(uuids):
         del d["stability_score"]
         # print(list[d.items()])
         for k, v in d.items():
-            mg.create_dataset(k, data=v,
-                              compression="lzf"
-                                  if k == "segmentation" else None)
+            mg.create_dataset(
+                k, data=v, compression="lzf" if k == "segmentation" else None)
         mg.attrs["area"] = mask["area"]
         mg.attrs["predicted_iou"] = mask["predicted_iou"]
         mg.attrs["stability_score"] = mask["stability_score"]
@@ -248,10 +260,13 @@ def sa_start(uuids):
     # DBSession.add(task)
     # transaction.commit
 
-STORE_FORMAT="turtle"
+
+STORE_FORMAT = "turtle"
+
 
 @app.task
 def feature_recognition(uuid):
+
     def f(js):
         js["ready"] = True
         js["result"] = True
@@ -265,7 +280,8 @@ def feature_recognition(uuid):
 
     rc_update(uuid, fd)
 
-    log.info("Creating task processing masks for image identified by UUID {}".format(uuid))
+    log.info("Creating task processing masks for image identified by UUID {}".
+             format(uuid))
     # Make a copy of mask data
     storage, ingrp, uuidgrp = storage_begin()
     name = gs(uuidgrp[uuid])
@@ -297,7 +313,8 @@ def feature_recognition(uuid):
         rc_update(uuid, bf)
         logging.info("Cannot start FE, no masks found")
         return
-    logging.info("Starting FE on {} shape image and {} its masks".format(image.shape, len(dd)))
+    logging.info("Starting FE on {} shape image and {} its masks".format(
+        image.shape, len(dd)))
     # pprint(dd)
     g = Graph(bind_namespaces="rdflib")
     fe_proc(g, image, dd, uuid, name)

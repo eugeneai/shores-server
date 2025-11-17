@@ -73,8 +73,9 @@ def fe_proc(g, image, masks, uuid, name):
                 a((mss, SH["point-coords"], pc))
                 a((pc, t, SH["Point-coords"]))
                 for bn, bv in zip(["x", "y"], v[0]):
-                    a((pc, SH[bn], Literal(float(bv)))) #, datatype=XSD.float)))
+                    a((pc, SH[bn],
+                       Literal(float(bv))))  #, datatype=XSD.float)))
                 # 'point_coords': array([[1152.96875,  197.03125]]),
             else:
-                 a((ms, SH[k], Literal(v)))
+                a((ms, SH[k], Literal(v)))
     # pprint(pd)
