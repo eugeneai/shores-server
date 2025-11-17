@@ -74,9 +74,13 @@ from PIL import Image
 
 CWD = os.getcwd()
 
+<<<<<<< HEAD
 ROOTDIR = "/home/eugeneai/projects/code/shores/"
+=======
+ROOTDIR = "/home/eugeneai/projects/code/shores-server"
+>>>>>>> 1a0c0f7735b35b6f794ba002708ea9da135d1cee
 # ROOTDIR = CWD
-CPDIR = op.join(ROOTDIR, "checkpoints")
+CPDIR = op.join(ROOTDIR, "tmp", "sa-data")
 CP_default = op.join(CPDIR, "sam_vit_h_4b8939.pth")
 CP_VIT_L = op.join(CPDIR, "sam_vit_l_0b3195.pth")
 CP_VIT_B = op.join(CPDIR, "sam_vit_b_01ec64.pth")
@@ -102,7 +106,17 @@ def loadModel(name="default"):
         SAM = sam_model_registry["vit_b"](checkpoint=CP_VIT_B)
     else:
         raise ValueError("Wrong parameter for SAM model")
-    mask_generator = SamAutomaticMaskGenerator(SAM)
+    # SAM.to(device='cuda')
+    SAM.to(device='cpu')
+    mask_generator = SamAutomaticMaskGenerator(
+        model=SAM,
+        points_per_side=32,
+        pred_iou_thresh=0.86,
+        stability_score_thresh=0.92,
+        crop_n_layers=1,
+        crop_n_points_downscale_factor=2,
+        min_mask_region_area=100,
+    )
     logging.info("SAM loaded '{}'".format(name))
     SAM_NAME = name
 
@@ -111,7 +125,7 @@ def segment(image, model=MODEL):
     global SAM
     if SAM is None:
         loadModel(name=model)
-
+    #predictor = SamPredictor(SAM)
     #predictor = SamPredictor(SAM)
     #predictor.set_image(image)
     #masks, v1, v2 = predictor.predict("borders")
@@ -124,22 +138,32 @@ def segment(image, model=MODEL):
     return masks
 
 
+<<<<<<< HEAD
 def testLoadAndSaveMasks(image, masks, outFN):
+=======
+def testLoadAndSaveMasks(image, masks, outFN, gen=False):
+>>>>>>> 1a0c0f7735b35b6f794ba002708ea9da135d1cee
     print("Test with load")
+    if isinstance(image, str):
+        imagename = op.join(IDIR, image)
+        image = imagename
+        image = cv2.imread(image)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     if isinstance(masks, str):
         masks = op.join(ODIR, masks)
         import pickle
-        print("Loading from pickle {}".format(masks))
         try:
             i = open(masks, "rb")
+<<<<<<< HEAD
+=======
+            print("Loading from pickle {}".format(masks))
+>>>>>>> 1a0c0f7735b35b6f794ba002708ea9da135d1cee
             masks = pickle.load(i)
             i.close()
         except FileNotFoundError:
             logging.info("The Cache is not found, recognizing!")
-            masks = testRecognize()
-    if isinstance(image, str):
-        image = op.join(IDIR, image)
-        image = imRead(image)
+            print("The Cache is not found, recognizing!")
+            masks = segment(image)
     rows, cols, chans = image.shape
     # maskt = np.full((rows, cols), 255, dtype=int)
     maskt = np.full((rows, cols), 0, dtype=image.dtype)
@@ -156,24 +180,43 @@ def testLoadAndSaveMasks(image, masks, outFN):
         mm = np.copy(maskt)
         # msk = ma.masked_equal(mask["segmentation"], True)
         msk = mask["segmentation"]
+<<<<<<< HEAD
         print("Mask from SAnything")
         pprint.pprint(msk)
         print("OUR template")
         pprint.pprint(mm)
+=======
+        # print("Mask from SAnything")
+        # pprint(msk)
+        # print("OUR template")
+        # pprint(mm)
+>>>>>>> 1a0c0f7735b35b6f794ba002708ea9da135d1cee
         mm[msk] = 255
         print("MASK")
-        pprint.pprint(mm)
+        pprint(mm)
         # quit()
         # mm = ma.masked_array(mask, mask["segmentation"])
         # img = cv2.bitwise_and(image, image, mask = mm)
         img = cv2.bitwise_and(image, image, mask=mm)
         tifLayers.append(Image.fromarray(img))
+        print("writing "+name)
         cv2.imwrite(name, img)
+<<<<<<< HEAD
+=======
+        if gen:
+            yield (imagename, name, img)
+
+>>>>>>> 1a0c0f7735b35b6f794ba002708ea9da135d1cee
     name = op.join(ODIR, "join-{}-".format(SAM_NAME) + outFN + '.tif')
     tifLayers[0].save(name,
                       save_all=True,
                       append_images=tifLayers[1:],
                       compression='tiff_lzw')
+<<<<<<< HEAD
+=======
+    if gen:
+        yield (imagename, name, tifLayers[1:])
+>>>>>>> 1a0c0f7735b35b6f794ba002708ea9da135d1cee
 
 
 # if __name__=="__main__":
