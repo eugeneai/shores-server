@@ -62,8 +62,18 @@ def rc_update(uuid, f):
     rc_set(uuid, rc)
 
 
-from segment_anything import SamPredictor, sam_model_registry, SamAutomaticMaskGenerator
-from segment_anything.modeling.sam2 import sam2_model_registry
+try:
+    from segment_anything_2 import SamPredictor, sam2_model_registry, SamAutomaticMaskGenerator
+    SAM2_AVAILABLE = True
+    print("SAM2 successfully imported")
+except ImportError as e:
+    SAM2_AVAILABLE = False
+    print(f"Warning: SAM2 not available. Error: {e}")
+    print("Using SAM1 models only.")
+
+# Fallback to SAM1 if SAM2 is not available
+if not SAM2_AVAILABLE:
+    from segment_anything import SamPredictor, sam_model_registry, SamAutomaticMaskGenerator
 
 import os.path as op
 import os
@@ -88,7 +98,18 @@ CP_SAM2_VIT_H = op.join(CPDIR, "sam2_hiera_large.pt")
 CP_SAM2_VIT_B = op.join(CPDIR, "sam2_hiera_base_plus.pt")
 CP_SAM2_VIT_T = op.join(CPDIR, "sam2_hiera_tiny.pt")
 
-MODEL = 'vit_b'
+# Verify SAM2 checkpoint files exist
+if SAM2_AVAILABLE:
+    print("Checking SAM2 checkpoint files...")
+    for checkpoint_name, checkpoint_path in [("SAM2_VIT_H", CP_SAM2_VIT_H),
+                                             ("SAM2_VIT_B", CP_SAM2_VIT_B),
+                                             ("SAM2_VIT_T", CP_SAM2_VIT_T)]:
+        if op.exists(checkpoint_path):
+            print(f"✓ {checkpoint_name}: {checkpoint_path}")
+        else:
+            print(f"✗ {checkpoint_name}: File not found at {checkpoint_path}")
+
+MODEL = 'sam2_vit_h'  # Default to SAM2
 SAM2_MODEL = 'sam2_vit_h'
 
 IDIR = op.join(ROOTDIR, "images")
@@ -101,25 +122,79 @@ mask_generator = None
 
 def loadModel(name="default"):
     global SAM, mask_generator, SAM_NAME
-    logging.info("SAM starts loading")
+    logging.info(f"SAM starts loading model: {name}")
 
-    # SAM2 models
+    # SAM2 models - now primary
     if name.startswith("sam2_"):
+        if not SAM2_AVAILABLE:
+            raise ImportError(
+                "SAM2 is not available. Please install segment_anything2 package."
+            )
+
+        print(f"Loading SAM2 model: {name}")
+
+        # Verify checkpoint file exists before loading
+        checkpoint_paths = {
+            "sam2_vit_h": CP_SAM2_VIT_H,
+            "sam2_vit_b": CP_SAM2_VIT_B,
+            "sam2_vit_t": CP_SAM2_VIT_T
+        }
+
+        checkpoint_path = checkpoint_paths.get(name)
+        if not checkpoint_path or not op.exists(checkpoint_path):
+            raise FileNotFoundError(
+                f"SAM2 checkpoint not found: {checkpoint_path}")
+
+        print(f"Using checkpoint: {checkpoint_path}")
+
         if name == "sam2_vit_h":
-            SAM = sam2_model_registry["sam2_hiera_l"](checkpoint=CP_SAM2_VIT_H)
+            SAM = sam2_model_registry["sam2_hiera_l"](
+                checkpoint=checkpoint_path)
         elif name == "sam2_vit_b":
-            SAM = sam2_model_registry["sam2_hiera_b_plus"](checkpoint=CP_SAM2_VIT_B)
+            SAM = sam2_model_registry["sam2_hiera_b_plus"](
+                checkpoint=checkpoint_path)
         elif name == "sam2_vit_t":
-            SAM = sam2_model_registry["sam2_hiera_t"](checkpoint=CP_SAM2_VIT_T)
+            SAM = sam2_model_registry["sam2_hiera_t"](
+                checkpoint=checkpoint_path)
         else:
             raise ValueError("Wrong parameter for SAM2 model")
-    # SAM1 models
+    # SAM1 models - fallback
     elif name == "default":
-        SAM = sam_model_registry["default"](checkpoint=CP_default)
+        if SAM2_AVAILABLE:
+            # Use SAM2 as default if available
+            print("Using SAM2 as default model")
+            checkpoint_path = CP_SAM2_VIT_H
+            if not op.exists(checkpoint_path):
+                raise FileNotFoundError(
+                    f"SAM2 default checkpoint not found: {checkpoint_path}")
+            SAM = sam2_model_registry["sam2_hiera_l"](
+                checkpoint=checkpoint_path)
+        else:
+            SAM = sam_model_registry["default"](checkpoint=CP_default)
     elif name == "vit_l":
-        SAM = sam_model_registry["vit_l"](checkpoint=CP_VIT_L)
+        if SAM2_AVAILABLE:
+            # Map SAM1 vit_l to closest SAM2 model
+            print("Mapping SAM1 vit_l to SAM2 sam2_vit_b")
+            checkpoint_path = CP_SAM2_VIT_B
+            if not op.exists(checkpoint_path):
+                raise FileNotFoundError(
+                    f"SAM2 checkpoint not found: {checkpoint_path}")
+            SAM = sam2_model_registry["sam2_hiera_b_plus"](
+                checkpoint=checkpoint_path)
+        else:
+            SAM = sam_model_registry["vit_l"](checkpoint=CP_VIT_L)
     elif name == "vit_b":
-        SAM = sam_model_registry["vit_b"](checkpoint=CP_VIT_B)
+        if SAM2_AVAILABLE:
+            # Map SAM1 vit_b to closest SAM2 model
+            print("Mapping SAM1 vit_b to SAM2 sam2_vit_t")
+            checkpoint_path = CP_SAM2_VIT_T
+            if not op.exists(checkpoint_path):
+                raise FileNotFoundError(
+                    f"SAM2 checkpoint not found: {checkpoint_path}")
+            SAM = sam2_model_registry["sam2_hiera_t"](
+                checkpoint=checkpoint_path)
+        else:
+            SAM = sam_model_registry["vit_b"](checkpoint=CP_VIT_B)
     else:
         raise ValueError("Wrong parameter for SAM model")
 
@@ -142,11 +217,9 @@ def segment(image, model=MODEL):
     global SAM
     if SAM is None:
         loadModel(name=model)
-    # For SAM2, we need to handle the different input format
-    if model.startswith("sam2_"):
-        # SAM2 expects images in 0-255 range with channels last
-        if image.dtype == np.float32 and image.max() <= 1.0:
-            image = (image * 255).astype(np.uint8)
+
+    # SAM2 handles image format automatically, no special conversion needed
+    # The mask generator works the same way for both SAM1 and SAM2
 
     logging.info("Start Recognition/Segmentation")
     masks = mask_generator.generate(image)
@@ -202,7 +275,7 @@ def testLoadAndSaveMasks(image, masks, outFN, gen=False):
         # img = cv2.bitwise_and(image, image, mask = mm)
         img = cv2.bitwise_and(image, image, mask=mm)
         tifLayers.append(Image.fromarray(img))
-        print("writing "+name)
+        print("writing " + name)
         cv2.imwrite(name, img)
         if gen:
             yield (imagename, name, img)
@@ -237,7 +310,8 @@ def sa_start_task(uuids, model=SAM2_MODEL):
 
     rc_update(uuids, fd)
     log.info(
-        'creating task processing image identified by UUID {} with model {}'.format(uuids, model))
+        'creating task processing image identified by UUID {} with model {}'.
+        format(uuids, model))
     # Load Image
     storage, ingrp, uuidgrp = storage_begin()
     name = gs(uuidgrp[uuids])

@@ -364,11 +364,7 @@ def start_recognition(request):
         else:
             rc = "no mask"
         STORAGE, INGRP, UUIDGRP = storage_end()
-        rd.update({
-            "ready": None,
-            "processuuid": None,
-            "description": rc
-        })
+        rd.update({"ready": None, "processuuid": None, "description": rc})
 
     return rd
 
@@ -639,17 +635,17 @@ def start_fe(request):
 
     return rd
 
+
 sa_service = Service(
     name='sa-service',
     path='/sa-1.0/sa/{img_uuid}/{cmd}',
-    description="Segment Anything operations for shoreline analysis"
-)
+    description="Segment Anything operations for shoreline analysis")
 
 sa_start_service = Service(
     name='sa-start-service',
     path='/sa-1.0/start',
-    description="Start SAM segmentation with model selection"
-)
+    description="Start SAM segmentation with model selection")
+
 
 @sa_start_service.post()
 def sa_start(request):
@@ -680,7 +676,17 @@ def sa_start(request):
         }
 
     # Check if model is valid
-    valid_models = ['default', 'vit_l', 'vit_b', 'sam2_vit_h', 'sam2_vit_b', 'sam2_vit_t']
+    valid_models = ['sam2_vit_h', 'sam2_vit_b',
+                    'sam2_vit_t']  # SAM2 models first
+    try:
+        # Check if SAM2 is available
+        from segment_anything_2 import sam2_model_registry
+        # SAM2 is primary, no fallback needed
+    except ImportError:
+        # Fallback to SAM1 models
+        valid_models = ['default', 'vit_l', 'vit_b']
+        print("SAM2 not available, falling back to SAM1 models")
+
     if model not in valid_models:
         return {
             "error": f"invalid model: {model}",
@@ -726,8 +732,7 @@ def sa_start(request):
 osm_service = Service(
     name='osm-query-service',
     path='/sa-1.0/osm/{img_uuid}/{query_type}',
-    description="OpenStreetMap data queries for shoreline context analysis"
-)
+    description="OpenStreetMap data queries for shoreline context analysis")
 
 
 @osm_service.get()
@@ -767,7 +772,8 @@ def query_osm_data(request):
         STORAGE, INGRP, UUIDGRP = storage_end()
         return {
             "error": "geographic coordinates not available for this image",
-            "description": "Image must have geolocation metadata for OSM queries",
+            "description":
+            "Image must have geolocation metadata for OSM queries",
             "ok": False,
             "uuid": uuids,
             "name": name
@@ -813,17 +819,13 @@ def query_osm_data(request):
         response = requests.post(
             'https://overpass-api.de/api/interpreter',
             data=overpass_query,
-            headers={'Content-Type': 'application/x-www-form-urlencoded'}
-        )
+            headers={'Content-Type': 'application/x-www-form-urlencoded'})
         response.raise_for_status()
 
         osm_data = response.json()
 
         # Convert to GeoJSON format
-        geojson = {
-            "type": "FeatureCollection",
-            "features": []
-        }
+        geojson = {"type": "FeatureCollection", "features": []}
 
         for element in osm_data['elements']:
             feature = {
@@ -844,8 +846,10 @@ def query_osm_data(request):
                 }
             elif element['type'] == 'way' and 'geometry' in element:
                 feature["geometry"] = {
-                    "type": "LineString",
-                    "coordinates": [[node['lon'], node['lat']] for node in element['geometry']]
+                    "type":
+                    "LineString",
+                    "coordinates": [[node['lon'], node['lat']]
+                                    for node in element['geometry']]
                 }
             elif element['type'] == 'relation':
                 # Skip relations as they are complex to represent in simple GeoJSON
